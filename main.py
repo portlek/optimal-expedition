@@ -1,6 +1,6 @@
 import pystray
 from pystray import MenuItem as item
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageTk
 from pynput import mouse, keyboard
 import mss
 import threading
@@ -45,7 +45,11 @@ def reset_app(icon, item):
     selection_start_pos = None
     print("Map coordinates, item markers, and selection start pos reset.")
     if active_overlay_window:
-        print("Closing active item marking overlay (simulated)...")
+        print("Closing active item marking overlay...")
+        try:
+            active_overlay_window.destroy()
+        except tk.TclError:
+            pass
         active_overlay_window = None
 
 
@@ -86,7 +90,18 @@ def trigger_map_capture_and_overlay():
     if active_overlay_window:
         print("Overlay window is already active. Please close it first or reset.")
         # TODO: Maybe bring to front?
-        return
+        # For now, let's try to bring it to the front if it exists.
+        if (
+            isinstance(active_overlay_window, tk.Toplevel)
+            and active_overlay_window.winfo_exists()
+        ):
+            active_overlay_window.lift()
+            active_overlay_window.attributes("-topmost", True)
+            active_overlay_window.attributes(
+                "-topmost", False
+            )  # To allow other windows to come on top later
+            return
+        # If it's not a valid window or doesn't exist, proceed to create a new one.
 
     if corner1_coords is None or corner2_coords is None:
         print(
@@ -127,12 +142,67 @@ def trigger_map_capture_and_overlay():
         return
 
     if captured_image_data:
-        active_overlay_window = "simulated_item_marking_window_object"
-        item_markers = []
-        print(
-            "Item marking overlay (simulated) would open now with the captured image."
+        # Convert the mss screenshot to a PIL Image, then to PhotoImage
+        img = Image.frombytes(
+            "RGB",
+            (captured_image_data.width, captured_image_data.height),
+            captured_image_data.rgb,
+            "raw",
+            "BGR",
         )
-        print("Use 'Reset' from tray to clear this simulated overlay.")
+
+        overlay_root = tk.Tk()
+        overlay_root.withdraw()  # Hide the main root window for the overlay
+
+        active_overlay_window = tk.Toplevel(overlay_root)
+        active_overlay_window.title("Map Overlay")
+        active_overlay_window.geometry(
+            f"{captured_image_data.width}x{captured_image_data.height}+{cap_x1}+{cap_y1}"
+        )
+        active_overlay_window.attributes("-topmost", True)  # Keep it on top
+
+        photo = ImageTk.PhotoImage(img)
+
+        canvas = tk.Canvas(
+            active_overlay_window,
+            width=captured_image_data.width,
+            height=captured_image_data.height,
+        )
+        canvas.pack(fill=tk.BOTH, expand=True)
+        canvas.create_image(0, 0, anchor=tk.NW, image=photo)
+        canvas.image = photo  # Keep a reference!
+
+        # Placeholder for right-click menu
+        def on_overlay_right_click(event):
+            print(
+                f"Overlay right-clicked at screen ({event.x_root}, {event.y_root}), window ({event.x}, {event.y})"
+            )
+            # TODO: Implement marker type selection menu
+
+        canvas.bind("<Button-3>", on_overlay_right_click)
+
+        # Ensure reset_app can close this specific Toplevel window's root
+        def on_overlay_close():
+            print("DEBUG: Overlay window closed via X button or programmatically.")
+            global active_overlay_window
+            if active_overlay_window:
+                # overlay_root.destroy() # This would destroy the hidden root, handling all Toplevels.
+                # We need to be careful if overlay_root is shared or created per overlay.
+                # For now, destroying the Toplevel itself should be managed by reset_app or quit_app.
+                # Let's ensure that active_overlay_window is set to None.
+                # The actual destroy() will be called by reset_app or quit_app.
+                # However, if the user closes it with 'X', we need to handle it.
+                active_overlay_window.destroy()  # Destroy the Toplevel
+                active_overlay_window = None  # Clear the global reference
+
+        active_overlay_window.protocol("WM_DELETE_WINDOW", on_overlay_close)
+
+        item_markers = []  # Reset markers for the new overlay
+        print(
+            f"Item marking overlay created at ({cap_x1}, {cap_y1}) with size {captured_image_data.width}x{captured_image_data.height}."
+        )
+        print("Use 'Reset' from tray to clear this overlay.")
+        # active_overlay_window.mainloop() # This would block. We want it to run alongside.
     else:
         print("Screenshot capture failed. Item marking overlay will not open.")
 
