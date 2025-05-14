@@ -160,6 +160,10 @@ def trigger_map_capture_and_overlay():
             f"{captured_image_data.width}x{captured_image_data.height}+{cap_x1}+{cap_y1}"
         )
         active_overlay_window.attributes("-topmost", True)  # Keep it on top
+        active_overlay_window.resizable(False, False)  # Make the window non-resizable
+        active_overlay_window.overrideredirect(
+            True
+        )  # Remove the title bar and window decorations
 
         photo = ImageTk.PhotoImage(img)
 
